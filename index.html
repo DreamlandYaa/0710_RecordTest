@@ -23,6 +23,8 @@
         <div id="unity-build-title">template_3D_URP_NuGet</div>
       </div>
     </div>
+    <script src="Build/recorder.wav.min.js"></script>
+    <script src="Build/OpenURLInSameTab.js"></script>
     <script>
 
       var container = document.querySelector("#unity-container");
@@ -105,18 +107,121 @@
       script.onload = () => {
         createUnityInstance(canvas, config, (progress) => {
           progressBarFull.style.width = 100 * progress + "%";
-              }).then((unityInstance) => {
-                loadingBar.style.display = "none";
-                fullscreenButton.onclick = () => {
-                  unityInstance.SetFullscreen(1);
-                };
-              }).catch((message) => {
-                alert(message);
-              });
-            };
-
+        }).then((unityInstance) => {
+          loadingBar.style.display = "none";
+          fullscreenButton.onclick = () => {
+            unityInstance.SetFullscreen(1);
+          };
+          UnityIns = unityInstance;
+          initRecord();
+        }).catch((message) => {
+          alert(message);
+        });
+      };
       document.body.appendChild(script);
+      let RecorderIns = null;
+     
+     let UnityIns = null;
 
+     
+     function initRecord(opt = {}) {
+       let defaultOpt = {
+         serviceCode: "asr_aword",
+         audioFormat: "wav",
+         sampleRate: 16000,
+         sampleBit: 16,
+         audioChannels: 1,
+         bitRate: 96000,
+         audioData: null,
+         punctuation: "true",
+         model: null,
+         intermediateResult: null,
+         maxStartSilence: null,
+         maxEndSilence: null,
+       };
+
+       let options = Object.assign({}, defaultOpt, opt);
+
+       let sampleRate = options.sampleRate || 8000;
+       let bitRate = parseInt(options.bitRate / 1000) || 16;
+       if (RecorderIns) {
+         RecorderIns.close();
+       }
+
+       RecorderIns = Recorder({
+         type: "wav",
+         sampleRate: sampleRate,
+         bitRate: bitRate,
+         onProcess(buffers, powerLevel, bufferDuration, bufferSampleRate) {
+         
+           const LEN = 59 * 1000;
+           if (bufferDuration > LEN) {
+             RecorderIns.recStop();
+           }
+         },
+       });
+       RecorderIns.open(
+         () => {
+           
+           console.log("打开麦克风成功");
+         },
+         (msg, isUserNotAllow) => {
+           
+           console.log((isUserNotAllow ? "UserNotAllow，" : "") + "无法录音:" + msg);
+         }
+       );
+     }
+
+    
+     function StartRecord() {
+       RecorderIns.start();
+     }
+     
+     function StopRecord() {
+       RecorderIns.stop(
+         (blob, duration) => {
+           console.log(
+             blob,
+             window.URL.createObjectURL(blob),
+             "时长:" + duration + "ms"
+           );
+           sendWavData(blob)
+         },
+         (msg) => {
+           console.log("录音失败:" + msg);
+         }
+       );
+     }
+     
+    
+     function sendWavData(blob) {
+       var reader = new FileReader();
+       reader.onload = function (e) {
+         var _value = reader.result;
+         var _partLength = 8192;
+         var _length = parseInt(_value.length / _partLength);
+         if (_length * _partLength < _value.length) _length += 1;
+         var _head = "Head|" + _length.toString() + "|" + _value.length.toString() + "|end" ;
+     
+         UnityIns.SendMessage("SignalManager", "GetAudioData", _head);
+         for (var i = 0; i < _length; i++) {
+           var _sendValue = "";
+           if (i < _length - 1) {
+             _sendValue = _value.substr(i * _partLength, _partLength);
+           } else {
+             _sendValue = _value.substr(
+               i * _partLength,
+               _value.length - i * _partLength
+             );
+           }
+           _sendValue = "Part|" + i.toString() + "|" + _sendValue;
+           
+           UnityIns.SendMessage("SignalManager", "GetAudioData", _sendValue);
+         }
+         _value = null;
+       };
+       reader.readAsDataURL(blob);
+     }
     </script>
   </body>
 </html>
